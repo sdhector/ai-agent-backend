@@ -107,6 +107,30 @@ const helmetConfig = /** @type {import('helmet').HelmetOptions} */ ({
 
 app.use(helmet(helmetConfig));
 
+// Root endpoint - API information
+app.get('/', (req, res) => {
+  res.json({
+    success: true,
+    name: 'AI Assistant Backend API',
+    version: '1.0.0',
+    status: 'running',
+    endpoints: {
+      health: '/health or /api/health',
+      auth: {
+        google: '/api/auth/google',
+        callback: '/api/auth/google/callback',
+        status: '/api/auth/status',
+        logout: '/api/auth/logout',
+        configCheck: '/api/auth/config-check'
+      },
+      ai: '/api/ai',
+      mcp: '/api/mcp',
+      conversations: '/api/conversations'
+    },
+    documentation: 'See README.md for full API documentation'
+  });
+});
+
 app.use('/health', healthRoutes);
 app.use('/api/health', healthRoutes);
 
