@@ -1,4 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
+import { createLogger } from './logger';
+
+const logger = createLogger('ErrorHandler');
 
 export interface AppErrorJSON {
   success: false;
@@ -72,7 +75,10 @@ export function errorHandler(err: Error, _req: Request, res: Response, _next: Ne
     return;
   }
 
-  console.error('Unexpected error:', err);
+  // Log unexpected errors with full details
+  logger.error('Unexpected error', err instanceof Error ? err : new Error(String(err)));
+
+  // Return generic error message to client (Issue #7: no sensitive details)
   res.status(500).json({
     success: false,
     error: {

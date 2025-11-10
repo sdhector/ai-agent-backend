@@ -7,6 +7,17 @@ const { cacheMiddleware } = require('../middleware/cache');
 
 const logger = createLogger('AIRoutes');
 
+// Helper to sanitize error messages for production
+const isProduction = process.env.NODE_ENV === 'production';
+function getSafeErrorMessage(error, fallbackMessage) {
+  // In production, don't expose internal error details
+  if (isProduction) {
+    return fallbackMessage;
+  }
+  // In development, show detailed error for debugging
+  return error?.message || fallbackMessage;
+}
+
 // Import AI providers (Claude - with MCP tool support)
 const { claudeProvider } = require('../dist/providers/claude');
 const { claudeLegacyProvider } = require('../dist/providers/claude-legacy');
@@ -40,11 +51,11 @@ router.get('/providers', cacheMiddleware(3600000), (req, res) => {
       total: availableProviders.length
     });
   } catch (error) {
-    console.error('Error getting providers:', error);
+    logger.error('Error getting providers', error);
     res.status(500).json({
       success: false,
       error: 'Failed to get providers',
-      message: error.message
+      message: getSafeErrorMessage(error, 'Unable to retrieve providers')
     });
   }
 });
@@ -80,11 +91,11 @@ router.get('/providers/:provider/models', (req, res) => {
       models: models
     });
   } catch (error) {
-    console.error(`Error getting models for ${req.params.provider}:`, error);
+    logger.error(`Error getting models for ${req.params.provider}`, error);
     res.status(500).json({
       success: false,
       error: 'Failed to get models',
-      message: error.message
+      message: getSafeErrorMessage(error, 'Unable to retrieve models')
     });
   }
 });
@@ -410,7 +421,7 @@ router.post('/chat', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Internal server error',
-      message: error.message
+      message: getSafeErrorMessage(error, 'An error occurred processing your request')
     });
   }
 });
@@ -453,11 +464,11 @@ router.get('/models', (req, res) => {
       }, {})
     });
   } catch (error) {
-    console.error('Error getting all models:', error);
+    logger.error('Error getting all models', error);
     res.status(500).json({
       success: false,
       error: 'Failed to get models',
-      message: error.message
+      message: getSafeErrorMessage(error, 'Unable to retrieve models')
     });
   }
 });

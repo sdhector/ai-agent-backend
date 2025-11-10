@@ -169,6 +169,25 @@ if (config.features.rateLimit !== false) {
     handler: aiLimitHandler,
   });
 
+  /** @type {import('express-rate-limit').RateLimitExceededEventHandler} */
+  const authLimitHandler = (req, res) => {
+    logger.warn('Auth rate limit exceeded', { path: req.path, ip: req.ip });
+    res.status(429).json({
+      success: false,
+      error: 'Too many authentication attempts, please try again later',
+    });
+  };
+
+  // Stricter rate limiting for auth endpoints to prevent brute force (Issue #9)
+  const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 10, // Only 10 auth attempts per window
+    standardHeaders: true,
+    legacyHeaders: false,
+    skipSuccessfulRequests: true, // Don't count successful auth attempts
+    handler: authLimitHandler,
+  });
+
   /** @type {import('express').RequestHandler} */
   const generalApiLimiter = (req, res, next) => {
     const path = req.path || '';
@@ -181,14 +200,15 @@ if (config.features.rateLimit !== false) {
 
   app.use('/api', generalApiLimiter);
   app.use('/api/ai', aiLimiter);
+  app.use('/api/auth', authLimiter); // Rate limit auth endpoints (Issue #9)
 }
 
 const csrfProtection = csrf({
   cookie: {
     key: '_csrf',
     httpOnly: true,
-    sameSite: 'strict',
-    secure: isProduction,
+    sameSite: isProduction ? 'none' : 'lax', // 'none' for cross-origin in production, 'lax' for local dev
+    secure: isProduction, // Required when sameSite is 'none'
   },
 });
 
@@ -198,8 +218,8 @@ const csrfTokenHandler = (req, res) => {
 
   res.cookie('XSRF-TOKEN', csrfToken, {
     httpOnly: false,
-    sameSite: 'strict',
-    secure: isProduction,
+    sameSite: isProduction ? 'none' : 'lax', // 'none' for cross-origin in production, 'lax' for local dev
+    secure: isProduction, // Required when sameSite is 'none'
     maxAge: 60 * 60 * 1000,
   });
 

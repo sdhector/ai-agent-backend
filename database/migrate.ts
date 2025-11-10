@@ -20,7 +20,7 @@ interface MigrationConfig {
 async function runMigrations(config: MigrationConfig): Promise<void> {
   const pool = new Pool({
     ...config,
-    ssl: config.ssl ? { rejectUnauthorized: false } : false,
+    ssl: config.ssl ? true : false,
   });
 
   try {
@@ -128,11 +128,11 @@ if (require.main === module) {
 
   runMigrations(config)
     .then(() => {
-      console.log('Migration completed successfully');
+      logger.info('Migration completed successfully');
       process.exit(0);
     })
     .catch((error) => {
-      console.error('Migration failed:', error);
+      logger.error('Migration failed', error as Error);
       process.exit(1);
     });
 }

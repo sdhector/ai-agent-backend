@@ -88,57 +88,58 @@ const validationLogger = createLogger('ConfigValidation');
 // Helper function to get URLs based on environment
 function getEnvironmentUrls() {
   const isCloudRun = !!process.env.K_SERVICE;
-  
-  if (isCloudRun) {
-    // In Cloud Run, backend and frontend are separate services
-    const backendUrl = 'https://ai-agent-backend-1025750725266.us-central1.run.app';
-    const frontendUrl = process.env.FRONTEND_URL?.trim() || 'https://ai-agent-frontend-462321.firebaseapp.com';
-    
-    return {
-      frontendUrl,
-      backendUrl,
-      mcpOAuthRedirect: `${backendUrl}/oauth/callback`,
-      appOAuthRedirect: `${backendUrl}/api/auth/google/callback`
-    };
-  } else {
-    // Local development - use explicit configuration from env vars
-    // Default to Cloud Run URLs if env vars not set to support both local and deployed envs
-    const defaultFrontendUrl = process.env.FRONTEND_URL || 'https://ai-assistant-pwa-1025750725266.us-central1.run.app';
-    const defaultBackendUrl = process.env.BACKEND_URL || 'https://ai-assistant-pwa-1025750725266.us-central1.run.app';
-    
-    return {
-      frontendUrl: defaultFrontendUrl,
-      backendUrl: defaultBackendUrl,
-      mcpOAuthRedirect: process.env.MCP_OAUTH_REDIRECT_URI || `${defaultFrontendUrl}/oauth/callback`,
-      appOAuthRedirect: process.env.APP_OAUTH_REDIRECT_URI || `${defaultBackendUrl}/api/auth/google/callback`
-    };
+
+  // Both backend and frontend URLs must be explicitly configured
+  const backendUrl = process.env.BACKEND_URL;
+  const frontendUrl = process.env.FRONTEND_URL;
+
+  if (!backendUrl) {
+    throw new Error('BACKEND_URL environment variable is required');
   }
+
+  if (!frontendUrl) {
+    throw new Error('FRONTEND_URL environment variable is required');
+  }
+
+  return {
+    frontendUrl: frontendUrl.trim(),
+    backendUrl: backendUrl.trim(),
+    mcpOAuthRedirect: process.env.MCP_OAUTH_REDIRECT_URI || `${backendUrl}/oauth/callback`,
+    appOAuthRedirect: process.env.APP_OAUTH_REDIRECT_URI || `${backendUrl}/api/auth/google/callback`
+  };
 }
 
 function getCorsOrigins(): Array<string | RegExp> {
+  const isProduction = process.env.NODE_ENV === 'production';
   const isCloudRun = process.env.K_SERVICE !== undefined;
 
-  if (isCloudRun) {
+  if (isProduction || isCloudRun) {
+    // Production: Use explicit ALLOWED_ORIGINS or FRONTEND_URL
+    const allowedOrigins = process.env.ALLOWED_ORIGINS;
+
+    if (allowedOrigins) {
+      // Parse comma-separated list of allowed origins
+      return allowedOrigins.split(',').map(origin => origin.trim()).filter(Boolean);
+    }
+
+    // Fall back to FRONTEND_URL if ALLOWED_ORIGINS not set
     const serviceUrl = process.env.FRONTEND_URL?.trim();
     if (serviceUrl) {
       // Include both .web.app and .firebaseapp.com domains
       const origins = [serviceUrl];
-      
+
       // Add alternate Firebase domain if using Firebase Hosting
       if (serviceUrl.includes('.firebaseapp.com')) {
         origins.push(serviceUrl.replace('.firebaseapp.com', '.web.app'));
       } else if (serviceUrl.includes('.web.app')) {
         origins.push(serviceUrl.replace('.web.app', '.firebaseapp.com'));
       }
-      
+
       return origins;
     }
-    // Default production URLs - include both Firebase domains
-    return [
-      'https://ai-assistant-pwa-1025750725266.us-central1.run.app',
-      'https://ai-agent-frontend-462321.web.app',
-      'https://ai-agent-frontend-462321.firebaseapp.com'
-    ];
+
+    // No CORS origins configured - fail safely
+    throw new Error('ALLOWED_ORIGINS or FRONTEND_URL must be configured in production');
   }
 
   // Local development origins - support multiple frontend configurations

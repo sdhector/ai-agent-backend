@@ -7,6 +7,8 @@ import { OAuthHandler } from '../services/mcp/OAuthHandler';
 import { ConnectionManager } from '../services/mcp/ConnectionManager';
 import { ToolRegistry } from '../services/mcp/ToolRegistry';
 import { createEncryptionService } from '../services/encryption';
+import { provisionDefaultConnectors } from '../services/default-connectors';
+import { validateMCPServerURL } from '../utils/url-validator';
 
 const logger = createLogger('MCPRoutes');
 const router = express.Router();
@@ -15,12 +17,19 @@ const router = express.Router();
 const toolRegistry = new ToolRegistry();
 let connectionManager: ConnectionManager | null = null;
 
-const encryptionService = config.mcp?.encryption?.masterKey 
+// Validate encryption key at startup if MCP is enabled
+if (config.mcp?.enabled && !config.mcp?.encryption?.masterKey) {
+  logger.error('TOKEN_ENCRYPTION_KEY is required when MCP is enabled');
+  throw new Error('TOKEN_ENCRYPTION_KEY environment variable is required when MCP_ENABLED=true');
+}
+
+const encryptionService = config.mcp?.encryption?.masterKey
   ? createEncryptionService(config.mcp.encryption.masterKey)
   : null;
 
-if (!encryptionService) {
-  logger.warn('Encryption service not initialized - TOKEN_ENCRYPTION_KEY missing');
+if (config.mcp?.enabled && !encryptionService) {
+  logger.error('Failed to initialize encryption service despite having master key');
+  throw new Error('Encryption service initialization failed');
 }
 
 function getConnectionManager(): ConnectionManager {
@@ -136,29 +145,6 @@ async function getValidAccessToken(serverId: string, userId: string): Promise<st
  * Called on every GET /servers request to ensure users always have default connectors
  */
 async function ensureDefaultConnectors(userId: string): Promise<void> {
-  const defaultConnectors = [
-    {
-      name: 'Gmail',
-      url: 'https://gmail-mcp-27273678741.us-central1.run.app/',
-      auth_type: 'oauth'
-    },
-    {
-      name: 'Google Drive',
-      url: 'https://google-drive-mcp-27273678741.us-central1.run.app/',
-      auth_type: 'oauth'
-    },
-    {
-      name: 'Google Tasks',
-      url: 'https://google-tasks-mcp-27273678741.us-central1.run.app/',
-      auth_type: 'oauth'
-    },
-    {
-      name: 'Google Calendar',
-      url: 'https://google-calendar-mcp-27273678741.us-central1.run.app/',
-      auth_type: 'oauth'
-    }
-  ];
-
   try {
     // Check if user has any connectors
     const existingServers = await db.getPool().query(
@@ -171,19 +157,7 @@ async function ensureDefaultConnectors(userId: string): Promise<void> {
     // If no connectors exist, provision the defaults
     if (serverCount === 0) {
       logger.info('No connectors found for user, provisioning defaults', { userId });
-      
-      for (const connector of defaultConnectors) {
-        await db.getPool().query(
-          `INSERT INTO mcp_servers (user_id, name, url, status, auth_type)
-           VALUES ($1, $2, $3, 'disconnected', $4)`,
-          [userId, connector.name, connector.url, connector.auth_type]
-        );
-      }
-      
-      logger.info('Successfully provisioned default connectors', { 
-        userId, 
-        count: defaultConnectors.length 
-      });
+      await provisionDefaultConnectors(userId, db.getPool());
     }
   } catch (error) {
     logger.error('Failed to ensure default connectors', error as Error, { userId });
@@ -309,6 +283,21 @@ router.post('/servers', async (req: Request, res: Response, next: NextFunction) 
       return res.status(400).json({
         success: false,
         error: 'Name and URL are required'
+      });
+    }
+
+    // Validate MCP server URL to prevent SSRF attacks
+    const urlValidation = validateMCPServerURL(url);
+    if (!urlValidation.valid) {
+      logger.warn('Invalid MCP server URL rejected', {
+        userId,
+        url,
+        error: urlValidation.error
+      });
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid server URL',
+        details: urlValidation.error
       });
     }
 
@@ -827,11 +816,12 @@ router.get('/oauth/callback', async (req: Request, res: Response, next: NextFunc
         pkceVerifier
       );
     } catch (exchangeError: any) {
+      // Log error without sensitive response data (Issue #11)
       logger.error('Token exchange failed', exchangeError, {
         serverId: server.id,
         tokenEndpoint: oauthMetadata.token_endpoint,
-        errorMessage: exchangeError.message,
-        errorResponse: exchangeError.response?.data
+        statusCode: exchangeError.response?.status,
+        // Don't log actual error response data - may contain sensitive info
       });
       const frontendUrl = config.mcp?.oauth?.frontendUrl || 'http://localhost:3001';
       return res.redirect(`${frontendUrl}/oauth/error?error=token_exchange_failed`);
