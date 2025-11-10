@@ -157,9 +157,15 @@ function getCorsOrigins(): Array<string | RegExp> {
 
 const urls = getEnvironmentUrls();
 
+// On Cloud Run, always use the PORT environment variable
+const isCloudRun = Boolean(process.env.K_SERVICE) || process.env.CLOUD_RUN === 'true';
+const serverPort = isCloudRun 
+  ? parseInt(process.env.PORT || '8080', 10)
+  : parseInt(process.env.BACKEND_PORT || process.env.PORT || '8080', 10);
+
 const config: AppConfig = {
   server: {
-    port: parseInt(process.env.BACKEND_PORT || process.env.PORT || '8080', 10),
+    port: serverPort,
     host: process.env.HOST || '0.0.0.0',
     environment: process.env.NODE_ENV || 'development',
     cors: {

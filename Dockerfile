@@ -14,8 +14,14 @@ FROM base AS build
 RUN npm ci
 COPY . .
 
-# Build TypeScript (if using TypeScript, otherwise skip this)
+# Build TypeScript
 RUN npm run build || echo "No build script, using source files directly"
+
+# Copy JavaScript source files that TypeScript doesn't compile
+RUN mkdir -p dist/constants && cp -r constants/*.js dist/constants/ || true
+RUN mkdir -p dist/routes && cp -r routes/*.js dist/routes/ || true
+RUN mkdir -p dist/middleware && cp -r middleware/*.js dist/middleware/ || true
+RUN mkdir -p dist/utils && cp -r utils/*.js dist/utils/ || true
 
 # Production image
 FROM node:20-alpine AS production
@@ -29,17 +35,17 @@ RUN apk add --no-cache dumb-init curl
 COPY --from=dependencies /app/node_modules ./node_modules
 
 # Copy built backend or source files
-COPY --from=build /app/dist ./dist 2>/dev/null || true
+COPY --from=build /app/dist ./dist/
 COPY --from=build /app/*.js ./
-COPY --from=build /app/config ./config
-COPY --from=build /app/constants ./constants
-COPY --from=build /app/database ./database
-COPY --from=build /app/middleware ./middleware
-COPY --from=build /app/providers ./providers
-COPY --from=build /app/routes ./routes
-COPY --from=build /app/services ./services
-COPY --from=build /app/types ./types
-COPY --from=build /app/utils ./utils
+COPY --from=build /app/config ./config/
+COPY --from=build /app/constants ./constants/
+COPY --from=build /app/database ./database/
+COPY --from=build /app/middleware ./middleware/
+COPY --from=build /app/providers ./providers/
+COPY --from=build /app/routes ./routes/
+COPY --from=build /app/services ./services/
+COPY --from=build /app/types ./types/
+COPY --from=build /app/utils ./utils/
 COPY --from=build /app/package.json ./package.json
 
 # Health check
