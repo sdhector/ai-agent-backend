@@ -121,13 +121,23 @@ function getCorsOrigins(): Array<string | RegExp> {
   if (isCloudRun) {
     const serviceUrl = process.env.FRONTEND_URL?.trim();
     if (serviceUrl) {
-      return [serviceUrl];
+      // Include both .web.app and .firebaseapp.com domains
+      const origins = [serviceUrl];
+      
+      // Add alternate Firebase domain if using Firebase Hosting
+      if (serviceUrl.includes('.firebaseapp.com')) {
+        origins.push(serviceUrl.replace('.firebaseapp.com', '.web.app'));
+      } else if (serviceUrl.includes('.web.app')) {
+        origins.push(serviceUrl.replace('.web.app', '.firebaseapp.com'));
+      }
+      
+      return origins;
     }
-    // Default production URLs
+    // Default production URLs - include both Firebase domains
     return [
       'https://ai-assistant-pwa-1025750725266.us-central1.run.app',
-      'https://your-project.web.app',
-      'https://your-project.firebaseapp.com'
+      'https://ai-agent-frontend-462321.web.app',
+      'https://ai-agent-frontend-462321.firebaseapp.com'
     ];
   }
 
