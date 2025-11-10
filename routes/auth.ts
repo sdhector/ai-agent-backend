@@ -203,9 +203,10 @@ router.get('/google/callback', async (req: Request, res: Response) => {
     }
 
     const jwtToken = generateToken(userId);
-    logger.info('Generated JWT token, redirecting to frontend', { userId });
+    const redirectUrl = `${frontendUrl}/auth/callback?token=${jwtToken}`;
+    logger.info('Generated JWT token, redirecting to frontend', { userId, redirectUrl });
 
-    return res.redirect(`${frontendUrl}/auth/callback?token=${jwtToken}`);
+    return res.redirect(redirectUrl);
 
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
