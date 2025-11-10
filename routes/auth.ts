@@ -11,7 +11,7 @@ const router = express.Router();
 const GOOGLE_CLIENT_ID = config.mcp?.appOAuth?.clientId || process.env.GOOGLE_CLIENT_ID || '';
 const GOOGLE_CLIENT_SECRET = config.mcp?.appOAuth?.clientSecret || process.env.GOOGLE_CLIENT_SECRET || '';
 // Use config.mcp.appOAuth values which have environment-aware auto-detection for App Login
-const GOOGLE_REDIRECT_URI = config.mcp?.appOAuth?.redirectUri || 'http://localhost:3002/api/auth/google/callback';
+const GOOGLE_REDIRECT_URI = config.mcp?.appOAuth?.redirectUri || '';
 
 /**
  * Auto-provision default MCP connectors for new users
@@ -198,7 +198,7 @@ router.get('/google', (req: Request, res: Response) => {
 });
 
 router.get('/google/callback', async (req: Request, res: Response) => {
-  const frontendUrl = config.mcp?.oauth?.frontendUrl || 'http://localhost:3001';
+  const frontendUrl = config.mcp?.oauth?.frontendUrl || '';
   
   try {
     const { code, error, state } = req.query;
@@ -291,7 +291,7 @@ router.get('/google/callback', async (req: Request, res: Response) => {
     }
 
     const jwtToken = generateToken(userId);
-    const redirectUrl = `${frontendUrl}/auth/callback?token=${jwtToken}`;
+    const redirectUrl = `${frontendUrl}/oauth-callback?token=${jwtToken}`;
     logger.info('Generated JWT token, redirecting to frontend', { userId, redirectUrl });
 
     return res.redirect(redirectUrl);
