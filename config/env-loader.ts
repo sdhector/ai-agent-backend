@@ -39,6 +39,7 @@ async function loadSecretsFromGCP(): Promise<boolean> {
     'OPENROUTER_API_KEY',
     'GOOGLE_CLIENT_ID',
     'GOOGLE_CLIENT_SECRET',
+    'BACKEND_URL',
     'FRONTEND_URL',
     'OAUTH_REDIRECT_URI',
     'MCP_ENABLED',
