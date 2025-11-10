@@ -8,6 +8,7 @@ import { ConnectionManager } from '../services/mcp/ConnectionManager';
 import { ToolRegistry } from '../services/mcp/ToolRegistry';
 import { createEncryptionService } from '../services/encryption';
 import { provisionDefaultConnectors } from '../services/default-connectors';
+import { validateMCPServerURL } from '../utils/url-validator';
 
 const logger = createLogger('MCPRoutes');
 const router = express.Router();
@@ -16,12 +17,19 @@ const router = express.Router();
 const toolRegistry = new ToolRegistry();
 let connectionManager: ConnectionManager | null = null;
 
-const encryptionService = config.mcp?.encryption?.masterKey 
+// Validate encryption key at startup if MCP is enabled
+if (config.mcp?.enabled && !config.mcp?.encryption?.masterKey) {
+  logger.error('TOKEN_ENCRYPTION_KEY is required when MCP is enabled');
+  throw new Error('TOKEN_ENCRYPTION_KEY environment variable is required when MCP_ENABLED=true');
+}
+
+const encryptionService = config.mcp?.encryption?.masterKey
   ? createEncryptionService(config.mcp.encryption.masterKey)
   : null;
 
-if (!encryptionService) {
-  logger.warn('Encryption service not initialized - TOKEN_ENCRYPTION_KEY missing');
+if (config.mcp?.enabled && !encryptionService) {
+  logger.error('Failed to initialize encryption service despite having master key');
+  throw new Error('Encryption service initialization failed');
 }
 
 function getConnectionManager(): ConnectionManager {
@@ -275,6 +283,21 @@ router.post('/servers', async (req: Request, res: Response, next: NextFunction) 
       return res.status(400).json({
         success: false,
         error: 'Name and URL are required'
+      });
+    }
+
+    // Validate MCP server URL to prevent SSRF attacks
+    const urlValidation = validateMCPServerURL(url);
+    if (!urlValidation.valid) {
+      logger.warn('Invalid MCP server URL rejected', {
+        userId,
+        url,
+        error: urlValidation.error
+      });
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid server URL',
+        details: urlValidation.error
       });
     }
 

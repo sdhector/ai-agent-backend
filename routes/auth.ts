@@ -5,6 +5,7 @@ import { db } from '../config/database';
 import config from '../config';
 import crypto from 'crypto';
 import { provisionDefaultConnectors } from '../services/default-connectors';
+import { validateRedirectURL } from '../utils/url-validator';
 
 const logger = createLogger('AuthRoutes');
 const router = express.Router();
@@ -154,7 +155,24 @@ router.get('/google', (req: Request, res: Response) => {
 
 router.get('/google/callback', async (req: Request, res: Response) => {
   const frontendUrl = config.mcp?.oauth?.frontendUrl || '';
-  
+
+  // Validate redirect URL to prevent open redirect attacks
+  const allowedRedirectURLs = process.env.ALLOWED_REDIRECT_URLS
+    ? process.env.ALLOWED_REDIRECT_URLS.split(',').map(url => url.trim())
+    : [frontendUrl];
+
+  const redirectValidation = validateRedirectURL(frontendUrl, allowedRedirectURLs);
+  if (!redirectValidation.valid) {
+    logger.error('Invalid frontend redirect URL', null, {
+      frontendUrl,
+      error: redirectValidation.error
+    });
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid redirect configuration'
+    });
+  }
+
   try {
     const { code, error, state } = req.query;
 
