@@ -87,18 +87,16 @@ const validationLogger = createLogger('ConfigValidation');
 
 // Helper function to get URLs based on environment
 function getEnvironmentUrls() {
-  const isCloudRun = !!process.env.K_SERVICE;
-
   // Both backend and frontend URLs must be explicitly configured
   const backendUrl = process.env.BACKEND_URL;
   const frontendUrl = process.env.FRONTEND_URL;
 
   if (!backendUrl) {
-    throw new Error('BACKEND_URL environment variable is required');
+    throw new Error('BACKEND_URL environment variable is required. Set it in GCP Secret Manager.');
   }
 
   if (!frontendUrl) {
-    throw new Error('FRONTEND_URL environment variable is required');
+    throw new Error('FRONTEND_URL environment variable is required. Set it in GCP Secret Manager.');
   }
 
   return {
