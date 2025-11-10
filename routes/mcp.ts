@@ -816,11 +816,12 @@ router.get('/oauth/callback', async (req: Request, res: Response, next: NextFunc
         pkceVerifier
       );
     } catch (exchangeError: any) {
+      // Log error without sensitive response data (Issue #11)
       logger.error('Token exchange failed', exchangeError, {
         serverId: server.id,
         tokenEndpoint: oauthMetadata.token_endpoint,
-        errorMessage: exchangeError.message,
-        errorResponse: exchangeError.response?.data
+        statusCode: exchangeError.response?.status,
+        // Don't log actual error response data - may contain sensitive info
       });
       const frontendUrl = config.mcp?.oauth?.frontendUrl || 'http://localhost:3001';
       return res.redirect(`${frontendUrl}/oauth/error?error=token_exchange_failed`);

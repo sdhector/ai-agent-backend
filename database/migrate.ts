@@ -128,11 +128,11 @@ if (require.main === module) {
 
   runMigrations(config)
     .then(() => {
-      console.log('Migration completed successfully');
+      logger.info('Migration completed successfully');
       process.exit(0);
     })
     .catch((error) => {
-      console.error('Migration failed:', error);
+      logger.error('Migration failed', error as Error);
       process.exit(1);
     });
 }
