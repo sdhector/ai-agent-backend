@@ -84,6 +84,94 @@ router.get('/config-check', (req: Request, res: Response) => {
   });
 });
 
+// Auth status endpoint - returns current user info based on JWT token
+router.get('/status', async (req: Request, res: Response) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({
+        success: false,
+        error: 'No authorization token provided'
+      });
+    }
+
+    const token = authHeader.substring(7);
+    const jwtSecret = process.env.JWT_SECRET;
+
+    if (!jwtSecret) {
+      logger.error('JWT_SECRET not configured');
+      return res.status(500).json({
+        success: false,
+        error: 'Server configuration error'
+      });
+    }
+
+    try {
+      const decoded = require('jsonwebtoken').verify(token, jwtSecret) as { userId: string };
+      
+      // Fetch user from database
+      const result = await db.getPool().query(
+        'SELECT id, email, name, picture FROM users WHERE id = $1',
+        [decoded.userId]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'User not found'
+        });
+      }
+
+      const user = result.rows[0];
+      
+      return res.json({
+        success: true,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          picture: user.picture
+        }
+      });
+    } catch (jwtError) {
+      logger.warn('Invalid or expired token', jwtError as Error);
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid or expired token'
+      });
+    }
+  } catch (error) {
+    logger.error('Error checking auth status', error as Error);
+    return res.status(500).json({
+      success: false,
+      error: 'Internal server error'
+    });
+  }
+});
+
+// Logout endpoint - clears session (client handles token removal)
+router.post('/logout', async (req: Request, res: Response) => {
+  try {
+    // In a stateless JWT setup, logout is primarily client-side (remove token)
+    // This endpoint can be used for server-side cleanup if needed in the future
+    // (e.g., token blacklisting, session invalidation, etc.)
+    
+    logger.info('User logged out');
+    
+    return res.json({
+      success: true,
+      message: 'Logged out successfully'
+    });
+  } catch (error) {
+    logger.error('Error during logout', error as Error);
+    return res.status(500).json({
+      success: false,
+      error: 'Internal server error'
+    });
+  }
+});
+
 router.get('/google', (req: Request, res: Response) => {
   const state = crypto.randomBytes(32).toString('hex');
   
