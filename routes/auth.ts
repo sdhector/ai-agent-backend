@@ -1,0 +1,227 @@
+import express, { Request, Response } from 'express';
+import { generateToken } from '../middleware/auth';
+import { createLogger } from '../utils/logger';
+import { db } from '../config/database';
+import config from '../config';
+import crypto from 'crypto';
+
+const logger = createLogger('AuthRoutes');
+const router = express.Router();
+
+const GOOGLE_CLIENT_ID = config.mcp?.appOAuth?.clientId || process.env.GOOGLE_CLIENT_ID || '';
+const GOOGLE_CLIENT_SECRET = config.mcp?.appOAuth?.clientSecret || process.env.GOOGLE_CLIENT_SECRET || '';
+// Use config.mcp.appOAuth values which have environment-aware auto-detection for App Login
+const GOOGLE_REDIRECT_URI = config.mcp?.appOAuth?.redirectUri || 'http://localhost:3002/api/auth/google/callback';
+
+/**
+ * Auto-provision default MCP connectors for new users
+ * Provides immediate access to Google service integrations without manual setup
+ */
+async function provisionDefaultConnectors(userId: string): Promise<void> {
+  const defaultConnectors = [
+    {
+      name: 'Gmail',
+      url: 'https://gmail-mcp-27273678741.us-central1.run.app/',
+      auth_type: 'oauth'
+    },
+    {
+      name: 'Google Drive',
+      url: 'https://google-drive-mcp-27273678741.us-central1.run.app/',
+      auth_type: 'oauth'
+    },
+    {
+      name: 'Google Tasks',
+      url: 'https://google-tasks-mcp-27273678741.us-central1.run.app/',
+      auth_type: 'oauth'
+    },
+    {
+      name: 'Google Calendar',
+      url: 'https://google-calendar-mcp-27273678741.us-central1.run.app/',
+      auth_type: 'oauth'
+    }
+  ];
+
+  try {
+    for (const connector of defaultConnectors) {
+      await db.getPool().query(
+        `INSERT INTO mcp_servers (user_id, name, url, status, auth_type)
+         VALUES ($1, $2, $3, 'disconnected', $4)`,
+        [userId, connector.name, connector.url, connector.auth_type]
+      );
+    }
+    logger.info('Provisioned default connectors for new user', { 
+      userId, 
+      count: defaultConnectors.length 
+    });
+  } catch (error) {
+    logger.error('Failed to provision default connectors', error as Error, { userId });
+    // Don't throw - user creation should still succeed even if connector provisioning fails
+  }
+}
+
+// Diagnostic endpoint
+router.get('/config-check', (req: Request, res: Response) => {
+  const isCloudRun = !!process.env.K_SERVICE;
+  
+  res.json({
+    environment: {
+      isCloudRun,
+      K_SERVICE: process.env.K_SERVICE || 'not set',
+      NODE_ENV: process.env.NODE_ENV || 'not set'
+    },
+    oauth: {
+      redirectUri: GOOGLE_REDIRECT_URI,
+      hasClientId: !!GOOGLE_CLIENT_ID,
+      clientIdPrefix: GOOGLE_CLIENT_ID ? GOOGLE_CLIENT_ID.substring(0, 10) + '...' : 'not set',
+      hasClientSecret: !!GOOGLE_CLIENT_SECRET,
+      frontendUrl: config.mcp?.oauth?.frontendUrl || 'not set'
+    },
+    config: {
+      mcpEnabled: !!config.mcp,
+      hasAppOAuth: !!config.mcp?.appOAuth,
+      appOAuthRedirectUri: config.mcp?.appOAuth?.redirectUri || 'not set'
+    }
+  });
+});
+
+router.get('/google', (req: Request, res: Response) => {
+  const state = crypto.randomBytes(32).toString('hex');
+  
+  logger.info('Initiating Google OAuth', { 
+    state,
+    redirectUri: GOOGLE_REDIRECT_URI,
+    isCloudRun: !!process.env.K_SERVICE,
+    K_SERVICE: process.env.K_SERVICE
+  });
+  
+  const params = new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID,
+    redirect_uri: GOOGLE_REDIRECT_URI,
+    response_type: 'code',
+    scope: 'openid email profile',
+    state,
+    access_type: 'offline',
+    prompt: 'consent'
+  });
+
+  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+  
+  res.redirect(authUrl);
+});
+
+router.get('/google/callback', async (req: Request, res: Response) => {
+  const frontendUrl = config.mcp?.oauth?.frontendUrl || 'http://localhost:3001';
+  
+  try {
+    const { code, error, state } = req.query;
+
+    logger.info('Google OAuth callback received', { 
+      hasCode: !!code, 
+      hasError: !!error,
+      hasState: !!state,
+      redirectUri: GOOGLE_REDIRECT_URI 
+    });
+
+    if (error) {
+      logger.error('Google OAuth error from provider', null, { error: String(error) });
+      return res.redirect(`${frontendUrl}/login?error=oauth_failed&details=${encodeURIComponent(String(error))}`);
+    }
+
+    if (!code) {
+      logger.error('No authorization code received from Google');
+      return res.redirect(`${frontendUrl}/login?error=missing_code`);
+    }
+
+    logger.info('Exchanging authorization code for tokens', { 
+      hasClientId: !!GOOGLE_CLIENT_ID,
+      hasClientSecret: !!GOOGLE_CLIENT_SECRET,
+      redirectUri: GOOGLE_REDIRECT_URI
+    });
+
+    const tokenParams = new URLSearchParams({
+      code: code as string,
+      client_id: GOOGLE_CLIENT_ID,
+      client_secret: GOOGLE_CLIENT_SECRET,
+      redirect_uri: GOOGLE_REDIRECT_URI,
+      grant_type: 'authorization_code'
+    });
+
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: tokenParams
+    });
+
+    if (!tokenResponse.ok) {
+      const errorText = await tokenResponse.text();
+      logger.error('Token exchange failed', null, { 
+        status: tokenResponse.status,
+        statusText: tokenResponse.statusText,
+        errorBody: errorText
+      });
+      return res.redirect(`${frontendUrl}/login?error=token_exchange_failed&status=${tokenResponse.status}`);
+    }
+
+    const tokens: any = await tokenResponse.json();
+    logger.info('Successfully exchanged code for tokens');
+
+    const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { Authorization: `Bearer ${tokens.access_token}` }
+    });
+
+    if (!userInfoResponse.ok) {
+      logger.error('Failed to fetch user info', null, { status: userInfoResponse.status });
+      return res.redirect(`${frontendUrl}/login?error=userinfo_failed`);
+    }
+
+    const userInfo: any = await userInfoResponse.json();
+    logger.info('Retrieved user info from Google', { email: userInfo.email });
+
+    let user = await db.getPool().query(
+      'SELECT id, email, name FROM users WHERE email = $1',
+      [userInfo.email]
+    );
+
+    let userId: string;
+
+    if (user.rows.length === 0) {
+      logger.info('Creating new user', { email: userInfo.email });
+      const result = await db.getPool().query(
+        `INSERT INTO users (email, name, google_id, picture)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id`,
+        [userInfo.email, userInfo.name, userInfo.id, userInfo.picture]
+      );
+      userId = result.rows[0].id;
+      logger.info('New user created via Google OAuth', { email: userInfo.email, userId });
+      
+      // Auto-provision default connectors for new users
+      await provisionDefaultConnectors(userId);
+    } else {
+      userId = user.rows[0].id;
+      logger.info('Existing user logged in via Google OAuth', { email: userInfo.email, userId });
+    }
+
+    const jwtToken = generateToken(userId);
+    logger.info('Generated JWT token, redirecting to frontend', { userId });
+
+    return res.redirect(`${frontendUrl}/auth/callback?token=${jwtToken}`);
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : '';
+    
+    logger.error('Google OAuth callback error', error as Error, { 
+      message: errorMessage,
+      stack: errorStack,
+      redirectUri: GOOGLE_REDIRECT_URI,
+      hasClientId: !!GOOGLE_CLIENT_ID,
+      hasClientSecret: !!GOOGLE_CLIENT_SECRET,
+      frontendUrl
+    });
+    
+    return res.redirect(`${frontendUrl}/login?error=auth_failed&details=${encodeURIComponent(errorMessage)}`);
+  }
+});
+
+export default router;
