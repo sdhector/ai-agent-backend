@@ -20,7 +20,7 @@ interface MigrationConfig {
 async function runMigrations(config: MigrationConfig): Promise<void> {
   const pool = new Pool({
     ...config,
-    ssl: config.ssl ? { rejectUnauthorized: false } : false,
+    ssl: config.ssl ? true : false,
   });
 
   try {

@@ -4,6 +4,7 @@ import { createLogger } from '../utils/logger';
 import { db } from '../config/database';
 import config from '../config';
 import crypto from 'crypto';
+import { provisionDefaultConnectors } from '../services/default-connectors';
 
 const logger = createLogger('AuthRoutes');
 const router = express.Router();
@@ -12,52 +13,6 @@ const GOOGLE_CLIENT_ID = config.mcp?.appOAuth?.clientId || process.env.GOOGLE_CL
 const GOOGLE_CLIENT_SECRET = config.mcp?.appOAuth?.clientSecret || process.env.GOOGLE_CLIENT_SECRET || '';
 // Use config.mcp.appOAuth values which have environment-aware auto-detection for App Login
 const GOOGLE_REDIRECT_URI = config.mcp?.appOAuth?.redirectUri || '';
-
-/**
- * Auto-provision default MCP connectors for new users
- * Provides immediate access to Google service integrations without manual setup
- */
-async function provisionDefaultConnectors(userId: string): Promise<void> {
-  const defaultConnectors = [
-    {
-      name: 'Gmail',
-      url: 'https://gmail-mcp-27273678741.us-central1.run.app/',
-      auth_type: 'oauth'
-    },
-    {
-      name: 'Google Drive',
-      url: 'https://google-drive-mcp-27273678741.us-central1.run.app/',
-      auth_type: 'oauth'
-    },
-    {
-      name: 'Google Tasks',
-      url: 'https://google-tasks-mcp-27273678741.us-central1.run.app/',
-      auth_type: 'oauth'
-    },
-    {
-      name: 'Google Calendar',
-      url: 'https://google-calendar-mcp-27273678741.us-central1.run.app/',
-      auth_type: 'oauth'
-    }
-  ];
-
-  try {
-    for (const connector of defaultConnectors) {
-      await db.getPool().query(
-        `INSERT INTO mcp_servers (user_id, name, url, status, auth_type)
-         VALUES ($1, $2, $3, 'disconnected', $4)`,
-        [userId, connector.name, connector.url, connector.auth_type]
-      );
-    }
-    logger.info('Provisioned default connectors for new user', { 
-      userId, 
-      count: defaultConnectors.length 
-    });
-  } catch (error) {
-    logger.error('Failed to provision default connectors', error as Error, { userId });
-    // Don't throw - user creation should still succeed even if connector provisioning fails
-  }
-}
 
 // Diagnostic endpoint
 router.get('/config-check', (req: Request, res: Response) => {
@@ -282,9 +237,9 @@ router.get('/google/callback', async (req: Request, res: Response) => {
       );
       userId = result.rows[0].id;
       logger.info('New user created via Google OAuth', { email: userInfo.email, userId });
-      
+
       // Auto-provision default connectors for new users
-      await provisionDefaultConnectors(userId);
+      await provisionDefaultConnectors(userId, db.getPool());
     } else {
       userId = user.rows[0].id;
       logger.info('Existing user logged in via Google OAuth', { email: userInfo.email, userId });

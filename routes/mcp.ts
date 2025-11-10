@@ -7,6 +7,7 @@ import { OAuthHandler } from '../services/mcp/OAuthHandler';
 import { ConnectionManager } from '../services/mcp/ConnectionManager';
 import { ToolRegistry } from '../services/mcp/ToolRegistry';
 import { createEncryptionService } from '../services/encryption';
+import { provisionDefaultConnectors } from '../services/default-connectors';
 
 const logger = createLogger('MCPRoutes');
 const router = express.Router();
@@ -136,29 +137,6 @@ async function getValidAccessToken(serverId: string, userId: string): Promise<st
  * Called on every GET /servers request to ensure users always have default connectors
  */
 async function ensureDefaultConnectors(userId: string): Promise<void> {
-  const defaultConnectors = [
-    {
-      name: 'Gmail',
-      url: 'https://gmail-mcp-27273678741.us-central1.run.app/',
-      auth_type: 'oauth'
-    },
-    {
-      name: 'Google Drive',
-      url: 'https://google-drive-mcp-27273678741.us-central1.run.app/',
-      auth_type: 'oauth'
-    },
-    {
-      name: 'Google Tasks',
-      url: 'https://google-tasks-mcp-27273678741.us-central1.run.app/',
-      auth_type: 'oauth'
-    },
-    {
-      name: 'Google Calendar',
-      url: 'https://google-calendar-mcp-27273678741.us-central1.run.app/',
-      auth_type: 'oauth'
-    }
-  ];
-
   try {
     // Check if user has any connectors
     const existingServers = await db.getPool().query(
@@ -171,19 +149,7 @@ async function ensureDefaultConnectors(userId: string): Promise<void> {
     // If no connectors exist, provision the defaults
     if (serverCount === 0) {
       logger.info('No connectors found for user, provisioning defaults', { userId });
-      
-      for (const connector of defaultConnectors) {
-        await db.getPool().query(
-          `INSERT INTO mcp_servers (user_id, name, url, status, auth_type)
-           VALUES ($1, $2, $3, 'disconnected', $4)`,
-          [userId, connector.name, connector.url, connector.auth_type]
-        );
-      }
-      
-      logger.info('Successfully provisioned default connectors', { 
-        userId, 
-        count: defaultConnectors.length 
-      });
+      await provisionDefaultConnectors(userId, db.getPool());
     }
   } catch (error) {
     logger.error('Failed to ensure default connectors', error as Error, { userId });
