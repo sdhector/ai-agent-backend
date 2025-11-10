@@ -187,8 +187,8 @@ const csrfProtection = csrf({
   cookie: {
     key: '_csrf',
     httpOnly: true,
-    sameSite: 'strict',
-    secure: isProduction,
+    sameSite: isProduction ? 'none' : 'lax', // 'none' for cross-origin in production, 'lax' for local dev
+    secure: isProduction, // Required when sameSite is 'none'
   },
 });
 
@@ -198,8 +198,8 @@ const csrfTokenHandler = (req, res) => {
 
   res.cookie('XSRF-TOKEN', csrfToken, {
     httpOnly: false,
-    sameSite: 'strict',
-    secure: isProduction,
+    sameSite: isProduction ? 'none' : 'lax', // 'none' for cross-origin in production, 'lax' for local dev
+    secure: isProduction, // Required when sameSite is 'none'
     maxAge: 60 * 60 * 1000,
   });
 
