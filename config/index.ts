@@ -119,7 +119,7 @@ function getCorsOrigins(): Array<string | RegExp> {
   const isCloudRun = process.env.K_SERVICE !== undefined;
 
   if (isCloudRun) {
-    const serviceUrl = process.env.FRONTEND_URL;
+    const serviceUrl = process.env.FRONTEND_URL?.trim();
     if (serviceUrl) {
       return [serviceUrl];
     }
