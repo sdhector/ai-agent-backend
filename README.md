@@ -106,8 +106,8 @@ This backend API provides:
 ### 1. Clone Repository
 
 ```bash
-git clone https://github.com/yourusername/ai-assistant-backend.git
-cd ai-assistant-backend
+git clone https://github.com/sdhector/ai-agent-backend.git
+cd ai-agent-backend
 ```
 
 ### 2. Install Dependencies
@@ -580,14 +580,14 @@ This project is licensed under the ISC License.
 ## Support
 
 For issues, questions, or contributions:
-- **GitHub Issues**: https://github.com/yourusername/ai-assistant-backend/issues
+- **GitHub Issues**: https://github.com/sdhector/ai-agent-backend/issues
 - **Documentation**: See `/docs` folder for detailed guides
 
 ---
 
 ## Related Repositories
 
-- **Frontend**: https://github.com/yourusername/ai-assistant-frontend (React Native PWA + Android APK)
+- **Frontend**: https://github.com/sdhector/ai-agent-frontend (React Native PWA + Android APK)
 
 ---
 
