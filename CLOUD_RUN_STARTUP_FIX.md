@@ -20,28 +20,25 @@ Look for:
 - `[timestamp] Server application loaded successfully`
 - `🚀 Server started` message with port and environment
 
-### 2. Get and Set Backend URL Secret
-After successful deployment, get your service URL:
+### 2. Set Backend URL Secret
 ```bash
-SERVICE_URL=$(gcloud run services describe ai-agent-backend \
-  --region=us-central1 \
-  --format='value(status.url)')
-
-echo $SERVICE_URL
-
-# Create the secret with actual URL
-gcloud secrets create backend-url --data-file=- <<< "$SERVICE_URL"
+# Create backend URL secret
+echo "https://ai-agent-backend-1025750725266.us-central1.run.app" | gcloud secrets create backend-url \
+  --project=professional-website-462321 \
+  --data-file=-
 ```
 
-### 3. Configure Frontend URL
-Set your actual frontend URL:
+### 3. Set Frontend URL Secret
 ```bash
-gcloud secrets create frontend-url --data-file=- <<< "https://your-frontend.web.app"
+# Create frontend URL secret
+echo "https://ai-agent-frontend-462321.web.app" | gcloud secrets create frontend-url \
+  --project=professional-website-462321 \
+  --data-file=-
 ```
 
 ### 4. Test Health Endpoint
 ```bash
-curl https://ai-agent-backend-xxx.us-central1.run.app/health
+curl https://ai-agent-backend-1025750725266.us-central1.run.app/health
 ```
 
 Expected response:
@@ -100,7 +97,7 @@ gcloud secrets create allowed-origins --data-file=- <<< "https://app1.com,https:
 
 # MCP Configuration
 gcloud secrets create mcp-enabled --data-file=- <<< "true"
-gcloud secrets create oauth-redirect-uri --data-file=- <<< "https://your-backend.run.app/oauth/callback"
+gcloud secrets create oauth-redirect-uri --data-file=- <<< "https://ai-agent-backend-1025750725266.us-central1.run.app/oauth/callback"
 ```
 
 ## Monitoring Setup
@@ -216,9 +213,9 @@ If using Google authentication:
 1. Go to Google Cloud Console → APIs & Services → Credentials
 2. Create or update OAuth 2.0 Client ID
 3. Add authorized redirect URIs:
-   - `https://[YOUR-BACKEND-URL]/api/auth/google/callback`
+   - `https://ai-agent-backend-1025750725266.us-central1.run.app/api/auth/google/callback`
 4. Add authorized origins:
-   - `https://[YOUR-FRONTEND-URL]`
+   - `https://ai-agent-frontend-462321.web.app`
 
 ### Database Setup (if MCP enabled)
 

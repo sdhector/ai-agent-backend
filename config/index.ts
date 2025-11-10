@@ -87,34 +87,16 @@ const validationLogger = createLogger('ConfigValidation');
 
 // Helper function to get URLs based on environment
 function getEnvironmentUrls() {
-  const isCloudRun = !!process.env.K_SERVICE;
-
-  // Both backend and frontend URLs should be explicitly configured
-  let backendUrl = process.env.BACKEND_URL;
-  let frontendUrl = process.env.FRONTEND_URL;
-
-  // For Cloud Run, if BACKEND_URL is not set, construct it from K_SERVICE
-  if (!backendUrl && isCloudRun) {
-    const serviceName = process.env.K_SERVICE;
-    const region = process.env.GOOGLE_CLOUD_REGION || 'us-central1';
-    const projectId = process.env.GOOGLE_CLOUD_PROJECT || process.env.GCP_PROJECT || 'professional-website-462321';
-    backendUrl = `https://${serviceName}-${projectId}.${region}.run.app`;
-    console.log(`⚠️  BACKEND_URL not set, using constructed URL: ${backendUrl}`);
-  }
+  // Both backend and frontend URLs must be explicitly configured
+  const backendUrl = process.env.BACKEND_URL;
+  const frontendUrl = process.env.FRONTEND_URL;
 
   if (!backendUrl) {
-    throw new Error('BACKEND_URL environment variable is required');
+    throw new Error('BACKEND_URL environment variable is required. Set it in GCP Secret Manager.');
   }
 
-  // For initial deployment, allow FRONTEND_URL to be missing but warn about it
   if (!frontendUrl) {
-    if (isCloudRun) {
-      console.warn('⚠️  FRONTEND_URL not set - OAuth and CORS may not work correctly');
-      // Use a placeholder that won't match any real origin
-      frontendUrl = 'https://placeholder.example.com';
-    } else {
-      throw new Error('FRONTEND_URL environment variable is required');
-    }
+    throw new Error('FRONTEND_URL environment variable is required. Set it in GCP Secret Manager.');
   }
 
   return {
