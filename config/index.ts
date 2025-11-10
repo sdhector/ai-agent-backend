@@ -90,14 +90,15 @@ function getEnvironmentUrls() {
   const isCloudRun = !!process.env.K_SERVICE;
   
   if (isCloudRun) {
-    // In Cloud Run, construct URLs from service name
-    const baseUrl = 'https://ai-assistant-pwa-1025750725266.us-central1.run.app';
+    // In Cloud Run, backend and frontend are separate services
+    const backendUrl = 'https://ai-agent-backend-1025750725266.us-central1.run.app';
+    const frontendUrl = process.env.FRONTEND_URL?.trim() || 'https://ai-agent-frontend-462321.firebaseapp.com';
     
     return {
-      frontendUrl: baseUrl,
-      backendUrl: baseUrl,  // Same in Cloud Run (single container)
-      mcpOAuthRedirect: `${baseUrl}/oauth/callback`,
-      appOAuthRedirect: `${baseUrl}/api/auth/google/callback`
+      frontendUrl,
+      backendUrl,
+      mcpOAuthRedirect: `${backendUrl}/oauth/callback`,
+      appOAuthRedirect: `${backendUrl}/api/auth/google/callback`
     };
   } else {
     // Local development - use explicit configuration from env vars
