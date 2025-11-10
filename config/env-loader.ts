@@ -42,6 +42,7 @@ async function loadSecretsFromGCP(): Promise<boolean> {
     'BACKEND_URL',
     'FRONTEND_URL',
     'OAUTH_REDIRECT_URI',
+    'APP_OAUTH_REDIRECT_URI',
     'MCP_ENABLED',
     'MCP_TOKEN_REFRESH_INTERVAL',
     'BACKEND_PORT',
@@ -51,7 +52,13 @@ async function loadSecretsFromGCP(): Promise<boolean> {
     'JWT_EXPIRY',
     'ENABLE_RATE_LIMIT',
     'ENABLE_LOGGING',
-    'ENABLE_CACHING'
+    'ENABLE_CACHING',
+    'DB_HOST',
+    'DB_PORT',
+    'DB_NAME',
+    'DB_USER',
+    'DB_SSL',
+    'DB_MAX_CONNECTIONS'
   ];
 
 
@@ -70,7 +77,8 @@ async function loadSecretsFromGCP(): Promise<boolean> {
         const [version] = await client.accessSecretVersion({ name });
         const payload = version?.payload?.data?.toString('utf8');
         if (payload) {
-          process.env[secretKey] = payload;
+          // Trim to remove any trailing newlines or whitespace
+          process.env[secretKey] = payload.trim();
           console.log(`✅ Loaded ${secretKey} from Secret Manager`);
         }
       } catch (error) {
