@@ -118,22 +118,30 @@ npm install
 
 ### 3. Configure Environment
 
-```bash
-# Copy example environment file
-cp .env.example .env
+**IMPORTANT**: GCP Secret Manager is the **SINGLE SOURCE OF TRUTH** for all secrets.
 
-# Edit .env and update with your values
-nano .env
-```
+There is **NO** local `.env` file fallback. All secrets must be stored in GCP Secret Manager.
 
-**Required environment variables**:
-- `ANTHROPIC_API_KEY` - Your Anthropic API key
-- `JWT_SECRET` - Secret for JWT tokens (generate with `openssl rand -base64 32`)
-- `GOOGLE_CLIENT_ID` - Google OAuth client ID
-- `GOOGLE_CLIENT_SECRET` - Google OAuth client secret
-- `DATABASE_URL` - PostgreSQL connection string (if using MCP)
+#### Local Development Setup
 
-See [Environment Variables](#environment-variables) section for complete list.
+1. **Authenticate with GCP**:
+   ```bash
+   gcloud auth application-default login
+   ```
+
+2. **Verify secrets exist in Secret Manager**:
+   ```bash
+   gcloud secrets list --project=professional-website-462321
+   ```
+
+3. **Required secrets** (see [SECRETS.md](./SECRETS.md) for complete list):
+   - `google-client-id` → `GOOGLE_CLIENT_ID`
+   - `google-client-secret` → `GOOGLE_CLIENT_SECRET`
+   - `jwt-secret` → `JWT_SECRET`
+   - `anthropic-api-key` → `ANTHROPIC_API_KEY`
+   - `database-url` → `DATABASE_URL` (if using MCP)
+
+See [SECRETS.md](./SECRETS.md) for detailed secret management instructions.
 
 ### 4. Run Locally
 

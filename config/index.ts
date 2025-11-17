@@ -87,23 +87,42 @@ const validationLogger = createLogger('ConfigValidation');
 
 // Helper function to get URLs based on environment
 function getEnvironmentUrls() {
-  // Both backend and frontend URLs must be explicitly configured
-  const backendUrl = process.env.BACKEND_URL;
-  const frontendUrl = process.env.FRONTEND_URL;
+  const isProduction = process.env.NODE_ENV === 'production';
+  const isCloudRun = Boolean(process.env.K_SERVICE) || process.env.CLOUD_RUN === 'true';
+  
+  // In production/Cloud Run, both URLs must be explicitly configured
+  if (isProduction || isCloudRun) {
+    const backendUrl = process.env.BACKEND_URL;
+    const frontendUrl = process.env.FRONTEND_URL;
 
-  if (!backendUrl) {
-    throw new Error('BACKEND_URL environment variable is required. Set it in GCP Secret Manager.');
+    if (!backendUrl) {
+      throw new Error('BACKEND_URL environment variable is required. Set it in GCP Secret Manager.');
+    }
+
+    if (!frontendUrl) {
+      throw new Error('FRONTEND_URL environment variable is required. Set it in GCP Secret Manager.');
+    }
+
+    return {
+      frontendUrl: frontendUrl.trim(),
+      backendUrl: backendUrl.trim(),
+      mcpOAuthRedirect: process.env.MCP_OAUTH_REDIRECT_URI || `${backendUrl}/oauth/callback`,
+      appOAuthRedirect: process.env.APP_OAUTH_REDIRECT_URI || `${backendUrl}/api/auth/google/callback`
+    };
   }
 
-  if (!frontendUrl) {
-    throw new Error('FRONTEND_URL environment variable is required. Set it in GCP Secret Manager.');
-  }
+  // Local development: always use localhost URLs (ignore Secret Manager URLs for local dev)
+  const backendPort = process.env.BACKEND_PORT || process.env.PORT || '8080';
+  const localBackendUrl = `http://localhost:${backendPort}`;
+  const localFrontendUrl = 'http://localhost:8081';
 
   return {
-    frontendUrl: frontendUrl.trim(),
-    backendUrl: backendUrl.trim(),
-    mcpOAuthRedirect: process.env.MCP_OAUTH_REDIRECT_URI || `${backendUrl}/oauth/callback`,
-    appOAuthRedirect: process.env.APP_OAUTH_REDIRECT_URI || `${backendUrl}/api/auth/google/callback`
+    frontendUrl: localFrontendUrl,
+    backendUrl: localBackendUrl,
+    // Always use localhost for OAuth redirects in local development
+    // This ensures OAuth works locally even if Secret Manager has Cloud Run URLs
+    mcpOAuthRedirect: `${localBackendUrl}/oauth/callback`,
+    appOAuthRedirect: `${localBackendUrl}/api/auth/google/callback`
   };
 }
 
@@ -206,7 +225,18 @@ const config: AppConfig = {
     // Always configure app OAuth if Google credentials are present
     // This ensures user login works regardless of MCP_ENABLED flag
     const hasGoogleOAuth = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
-    const isMcpEnabled = process.env.MCP_ENABLED === 'true';
+    const isProduction = process.env.NODE_ENV === 'production';
+    const isCloudRun = Boolean(process.env.K_SERVICE) || process.env.CLOUD_RUN === 'true';
+    let isMcpEnabled = process.env.MCP_ENABLED === 'true';
+
+    // In development, auto-disable MCP if required variables are missing
+    if (!isProduction && !isCloudRun && isMcpEnabled) {
+      const hasRequiredVars = !!(process.env.ENCRYPTION_KEY && process.env.DATABASE_URL);
+      if (!hasRequiredVars) {
+        console.warn('⚠️  MCP_ENABLED is true but required variables (ENCRYPTION_KEY, DATABASE_URL) are missing. Disabling MCP for local development.');
+        isMcpEnabled = false;
+      }
+    }
 
     if (!isMcpEnabled && !hasGoogleOAuth) {
       return undefined;
@@ -265,18 +295,22 @@ const envSchema = z.object({
     .min(1, 'ANTHROPIC_API_KEY is required')
     .refine((val) => val.startsWith('sk-'), 'ANTHROPIC_API_KEY must start with sk-'),
   ENCRYPTION_KEY: z
-    .string({ required_error: 'ENCRYPTION_KEY is required' })
+    .string()
     .refine((val) => {
+      if (!val) return true; // Optional, validation handled in validateConfig
       try {
         return Buffer.from(val, 'base64').length === 32;
       } catch {
         return false;
       }
-    }, 'ENCRYPTION_KEY must be base64-encoded 32 bytes'),
+    }, 'ENCRYPTION_KEY must be base64-encoded 32 bytes')
+    .optional(),
   TOKEN_ENCRYPTION_KEY: z.string().optional(),
   DATABASE_URL: z
-    .string({ required_error: 'DATABASE_URL is required' })
-    .url('DATABASE_URL must be a valid URL'),
+    .preprocess((val) => {
+      if (val === '' || val === null || val === undefined) return undefined;
+      return val;
+    }, z.string().url('DATABASE_URL must be a valid URL').optional()),
   MCP_ENABLED: z.string().optional(),
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
@@ -327,11 +361,23 @@ export function validateConfig(options: ConfigValidationOptions = {}): ConfigVal
     FRONTEND_URL: process.env.FRONTEND_URL?.trim()
   } as const;
 
+  // In development, be lenient with DATABASE_URL and ENCRYPTION_KEY validation
+  // since they're only required when MCP is enabled
+  const isProduction = config.server.environment === 'production';
+  const isCloudRun = Boolean(process.env.K_SERVICE) || process.env.CLOUD_RUN === 'true';
+  const isDevelopment = !isProduction && !isCloudRun;
+
   const parsed = envSchema.safeParse(envValues);
 
   if (!parsed.success) {
     parsed.error.errors.forEach((issue) => {
       const path = issue.path.join('.') || 'value';
+      // In development, skip DATABASE_URL and ENCRYPTION_KEY schema errors
+      // They will be validated conditionally in validateConfig based on MCP_ENABLED
+      if (isDevelopment && (path === 'DATABASE_URL' || path === 'ENCRYPTION_KEY')) {
+        // Skip these errors in development - they'll be validated conditionally
+        return;
+      }
       errors.push(`${path}: ${issue.message}`);
     });
   }
@@ -355,6 +401,32 @@ export function validateConfig(options: ConfigValidationOptions = {}): ConfigVal
   const hasAppOAuth = !!(config.mcp?.appOAuth?.clientId && config.mcp?.appOAuth?.clientSecret);
 
   if (isMcpEnabled) {
+    // Validate ENCRYPTION_KEY when MCP is enabled
+    const encryptionKey = env.ENCRYPTION_KEY;
+    if (!encryptionKey) {
+      errors.push('ENCRYPTION_KEY is required when MCP is enabled');
+    } else {
+      try {
+        if (Buffer.from(encryptionKey, 'base64').length !== 32) {
+          errors.push('ENCRYPTION_KEY must be base64-encoded 32 bytes');
+        }
+      } catch {
+        errors.push('ENCRYPTION_KEY must be base64-encoded 32 bytes');
+      }
+    }
+
+    // Validate DATABASE_URL when MCP is enabled
+    const databaseUrl = env.DATABASE_URL;
+    if (!databaseUrl) {
+      errors.push('DATABASE_URL is required when MCP is enabled');
+    } else {
+      try {
+        new URL(databaseUrl);
+      } catch {
+        errors.push('DATABASE_URL must be a valid URL');
+      }
+    }
+
     const tokenKey = env.TOKEN_ENCRYPTION_KEY;
     if (!tokenKey) {
       errors.push('TOKEN_ENCRYPTION_KEY is required when MCP is enabled');

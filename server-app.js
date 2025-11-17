@@ -55,15 +55,21 @@ const app = express();
 const PORT = config.server.port;
 const HOST = config.server.host;
 const isProduction = config.server.environment === 'production';
+const isMcpEnabled = config.mcp?.enabled === true;
 
-try {
-  ensureDatabaseConnection();
-  logger.info('Database connection initialized');
-} catch (error) {
-  logger.error('Failed to initialize database connection', error instanceof Error ? error : null, {
-    message: error && typeof error === 'object' && 'message' in error ? error.message : undefined,
-  });
-  process.exit(1);
+// Only initialize database connection if MCP is enabled
+if (isMcpEnabled) {
+  try {
+    ensureDatabaseConnection();
+    logger.info('Database connection initialized');
+  } catch (error) {
+    logger.error('Failed to initialize database connection', error instanceof Error ? error : null, {
+      message: error && typeof error === 'object' && 'message' in error ? error.message : undefined,
+    });
+    process.exit(1);
+  }
+} else {
+  logger.info('Database connection skipped (MCP disabled)');
 }
 
 // Middleware order is critical: CORS → parsers → cookies → logging → security → rate limiting → CSRF → auth → routes → 404 → errors.

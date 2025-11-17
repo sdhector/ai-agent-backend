@@ -177,10 +177,14 @@ router.post('/chat', async (req, res) => {
       const sendEvent = (payload) => {
         if (!res.writableEnded) {
           try {
-            res.write(`data: ${JSON.stringify(payload)}\n\n`);
+            const data = `data: ${JSON.stringify(payload)}\n\n`;
+            res.write(data);
+            logger.debug('Sent SSE event', { type: payload.type || 'unknown' });
           } catch (error) {
             logger.error('Error writing SSE event', error);
           }
+        } else {
+          logger.warn('Response stream already ended, cannot send event', { type: payload.type || 'unknown' });
         }
       };
 
@@ -226,17 +230,36 @@ router.post('/chat', async (req, res) => {
         });
 
         // Send final response as content chunks
-        if (response.content) {
-          // Add spacing after tool execution if tools were used
-          const contentWithSpacing = toolsWereCalled 
-            ? '\n' + response.content 
-            : response.content;
-          
-          sendEvent({
-            type: 'content',
-            text: contentWithSpacing
-          });
-        }
+        logger.info('Tool execution completed', {
+          hasContent: response.content !== undefined && response.content !== null,
+          contentLength: response.content?.length || 0,
+          contentType: typeof response.content,
+          toolsWereCalled
+        });
+
+        // Always send content event - provider should always return content
+        // If content is empty, send a fallback message
+        const contentToSend = response.content !== undefined && response.content !== null && response.content !== ''
+          ? response.content
+          : (toolsWereCalled 
+              ? 'Tool execution completed successfully.'
+              : 'No response generated.');
+
+        // Add spacing after tool execution if tools were used
+        const contentWithSpacing = toolsWereCalled && contentToSend 
+          ? '\n' + contentToSend 
+          : contentToSend;
+        
+        logger.info('Sending content event', {
+          contentLength: contentWithSpacing.length,
+          preview: contentWithSpacing.substring(0, 100),
+          isFallback: !response.content || response.content === ''
+        });
+        
+        sendEvent({
+          type: 'content',
+          text: contentWithSpacing
+        });
 
         // Send metadata
         sendEvent({
@@ -317,21 +340,39 @@ router.post('/chat', async (req, res) => {
        */
       const sendEvent = (payload) => {
         if (!isClientConnected || res.writableEnded) {
+          const eventType = typeof payload === 'object' && payload !== null && payload !== undefined
+            ? (payload.type || 'unknown')
+            : 'unknown';
+          logger.debug('Cannot send event - client disconnected or stream ended', {
+            isClientConnected,
+            writableEnded: res.writableEnded,
+            type: eventType
+          });
           return;
         }
 
         try {
+          let data;
           if (payload === '[DONE]') {
-            res.write('data: [DONE]\n\n');
+            data = 'data: [DONE]\n\n';
           } else {
-            res.write(`data: ${JSON.stringify(payload)}\n\n`);
+            data = `data: ${JSON.stringify(payload)}\n\n`;
           }
+          res.write(data);
+          const eventType = typeof payload === 'object' && payload !== null && payload !== undefined
+            ? (payload.type || 'unknown')
+            : 'unknown';
+          logger.debug('Sent SSE event', {
+            type: eventType
+          });
         } catch (writeError) {
-          terminate('write_failed', /** @type {Error} */ (writeError));
+          terminate('write_failed', writeError);
         }
       };
 
       try {
+        let contentReceived = false;
+        
         const response = await provider.chat({
           model: modelToUse,
           messages,
@@ -340,7 +381,28 @@ router.post('/chat', async (req, res) => {
           userId,
           stream: true,
           signal: abortController.signal,
-          onStream: (chunk) => sendEvent(chunk)
+          onStream: (chunk) => {
+            const chunkText = chunk && typeof chunk === 'object' && 'text' in chunk
+              ? chunk.text
+              : undefined;
+            logger.debug('Stream chunk received', { 
+              type: chunk && typeof chunk === 'object' && 'type' in chunk ? chunk.type : 'unknown',
+              hasText: !!chunkText,
+              textLength: chunkText ? chunkText.length : 0
+            });
+            
+            if (chunk && typeof chunk === 'object' && chunk.type === 'content') {
+              contentReceived = true;
+            }
+            
+            sendEvent(chunk);
+          }
+        });
+
+        logger.info('Streaming completed', {
+          contentReceived,
+          model: response.model || modelToUse,
+          usage: response.usage
         });
 
         if (isClientConnected) {
